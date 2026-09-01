@@ -9,9 +9,9 @@ import argparse
 from pathlib import Path
 import pandas as pd
 from cv_utils import make_class_weights, get_folds
-
+from logger import RunLogger
 from models import ProbeHead
-def train_and_evaluate_fold(X_train, y_train, X_test, y_test, num_classes, epochs=20, batch_size=32, device="cuda", num_layers=2):
+def train_and_evaluate_fold(X_train, y_train, X_test, y_test, num_classes, epochs=20, batch_size=32, device="cuda", num_layers=2, logger=None, fold=0):
     model = ProbeHead(in_dim=X_train.shape[1], num_classes=num_classes, num_layers=num_layers).to(device)
     
     # Compute weights from training fold ONLY
@@ -32,7 +32,10 @@ def train_and_evaluate_fold(X_train, y_train, X_test, y_test, num_classes, epoch
             loss.backward()
             optimizer.step()
             
-    # Evaluation
+    if logger:
+        ckpt_dir = os.path.join(logger.log_dir, "checkpoints")
+        os.makedirs(ckpt_dir, exist_ok=True)
+        torch.save(model.state_dict(), os.path.join(ckpt_dir, f"fold_{fold+1}_probe.pth"))
     model.eval()
     with torch.no_grad():
         X_test_tensor = torch.tensor(X_test).float().to(device)
@@ -45,8 +48,9 @@ def train_and_evaluate_fold(X_train, y_train, X_test, y_test, num_classes, epoch
     
     return f1, prec, rec, cm
 
-def evaluate_features(features_path, labels_path, metadata_csv, num_classes=7, num_folds=5, epochs=20, num_layers=2):
-    X = np.load(features_path)
+def evaluate_features(features_path, labels_path, metadata_csv, num_classes=7, num_folds=5, epochs=20, num_layers=2, model_name="model"):
+    logger = RunLogger(paradigm=f"frozen_probe_{model_name}")
+    logger.log_hparams({"num_layers": num_layers, "epochs": epochs, "model_name": model_name})
     y = np.load(labels_path)
     df = pd.read_csv(metadata_csv)
     
@@ -57,13 +61,19 @@ def evaluate_features(features_path, labels_path, metadata_csv, num_classes=7, n
         f1, prec, rec, cm = train_and_evaluate_fold(
             X[train_idx], y[train_idx], 
             X[test_idx], y[test_idx], 
-            num_classes, epochs=epochs, num_layers=num_layers
+            num_classes, epochs=epochs, num_layers=num_layers, logger=logger, fold=fold
         )
         f1s.append(f1)
+        if logger: logger.log_fold_result(fold, f1)
         precs.append(prec)
         recs.append(rec)
         cms.append(cm)
         
+    if logger:
+        logger.finish({
+            "macro_f1_mean": np.mean(f1s),
+            "macro_f1_std": np.std(f1s)
+        })
     return {
         "macro_f1": (np.mean(f1s), np.std(f1s)),
         "macro_prec": (np.mean(precs), np.std(precs)),
@@ -77,16 +87,20 @@ def main(features_dir: str, num_layers: int):
     groups_path = feat_dir / "lesion_ids.npy"
     metadata_csv = feat_dir.parent / "HAM10000_preprocessed" / "metadata.csv"
     # Since mock data might not have enough samples for 5 folds across all classes,
-    # we dynamically determine fold count based on dataset size for robustness.
-    # At minimum 2 folds for testing
-    num_folds = min(5, len(set(np.load(groups_path))) // 3)
-    if num_folds < 2: num_folds = 2
-    
-    print(f"\n--- Evaluating I-JEPA (Probe Layers: {num_layers}) ---")
-    ijepa_results = evaluate_features(feat_dir / "ijepa_features.npy", labels_path, str(metadata_csv), num_folds=num_folds, num_layers=num_layers)
-    print(f"Macro F1: {ijepa_results['macro_f1'][0]:.4f} ± {ijepa_results['macro_f1'][1]:.4f}")
-    print(f"Macro Precision: {ijepa_results['macro_prec'][0]:.4f} ± {ijepa_results['macro_prec'][1]:.4f}")
-    print(f"Macro Recall: {ijepa_results['macro_rec'][0]:.4f} ± {ijepa_results['macro_rec'][1]:.4f}")
+    if ijepa_feats.exists():
+        print(f"\n--- Evaluating I-JEPA Features ({num_layers}-layer MLP Probe) ---")
+        ijepa_results = evaluate_features(ijepa_feats, labels_path, metadata_csv, num_layers=num_layers, model_name="ijepa")
+        print(f"Macro F1: {ijepa_results['macro_f1'][0]:.4f} ± {ijepa_results['macro_f1'][1]:.4f}")
+        print(f"Macro Precision: {ijepa_results['macro_prec'][0]:.4f} ± {ijepa_results['macro_prec'][1]:.4f}")
+        print(f"Macro Recall: {ijepa_results['macro_rec'][0]:.4f} ± {ijepa_results['macro_rec'][1]:.4f}")
+        
+    dino_feats = feat_dir / "dino_features.npy"
+    if dino_feats.exists():
+        print(f"\n--- Evaluating DINO Features ({num_layers}-layer MLP Probe) ---")
+        dino_results = evaluate_features(dino_feats, labels_path, metadata_csv, num_layers=num_layers, model_name="dino")
+        print(f"Macro F1: {dino_results['macro_f1'][0]:.4f} ± {dino_results['macro_f1'][1]:.4f}")
+        print(f"Macro Precision: {dino_results['macro_prec'][0]:.4f} ± {dino_results['macro_prec'][1]:.4f}")
+        print(f"Macro Recall: {dino_results['macro_rec'][0]:.4f} ± {dino_results['macro_rec'][1]:.4f}")
     
     print(f"\n--- Evaluating DINO (Probe Layers: {num_layers}) ---")
     dino_results = evaluate_features(feat_dir / "dino_features.npy", labels_path, str(metadata_csv), num_folds=num_folds, num_layers=num_layers)

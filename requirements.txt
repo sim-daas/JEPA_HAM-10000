@@ -25,7 +25,6 @@ nvidia-nvshmem-cu13==3.4.5
 nvidia-nvtx==13.0.85
 packaging==26.3
 pillow==12.3.0
-pip @ file:///home/task_178792879927882/croot/pip_1787928831568/work
 pyyaml==6.0.3
 setuptools==83.0.0
 sympy==1.14.0

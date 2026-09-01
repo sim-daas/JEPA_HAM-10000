@@ -1,7 +1,44 @@
 import torch
 import torch.nn as nn
 from timm.models.vision_transformer import VisionTransformer
+from peft import LoraConfig, get_peft_model
 
+
+def count_trainable_params(model):
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    return trainable, total, 100 * trainable / total
+
+class LoRAIJEPAModel(nn.Module):
+    def __init__(self, ckpt_path: str, rank: int, num_classes=7, hidden=512, dropout=0.4, num_layers=2):
+        super().__init__()
+        self.encoder = load_ijepa_target_encoder(ckpt_path, device="cpu")
+        
+        # Apply LoRA using PEFT
+        config = LoraConfig(
+            r=rank,
+            lora_alpha=rank * 2,
+            target_modules=["qkv", "proj", "fc1", "fc2"],
+            lora_dropout=0.1,
+            bias="none"
+        )
+        self.encoder = get_peft_model(self.encoder, config)
+        
+        self.head = ProbeHead(
+            in_dim=1280,
+            num_classes=num_classes,
+            hidden=hidden,
+            dropout=dropout,
+            num_layers=num_layers
+        )
+        
+    def forward(self, x):
+        tokens = self.encoder(x)
+        if tokens.dim() == 3:
+            pooled = tokens.mean(dim=1)
+        else:
+            pooled = tokens
+        return self.head(pooled)
 class ProbeHead(nn.Module):
     def __init__(self, in_dim, num_classes=7, hidden=512, dropout=0.4, num_layers=2):
         super().__init__()

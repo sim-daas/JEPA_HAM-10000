@@ -13,8 +13,9 @@ from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 import argparse
 from pathlib import Path
 from cv_utils import make_class_weights, get_folds
-from models import FullIJEPAModel
+from models import LoRAIJEPAModel, count_trainable_params
 from logger import RunLogger
+import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 class HAM10000Dataset(Dataset):
@@ -45,7 +46,7 @@ class HAM10000Dataset(Dataset):
 def train_and_evaluate_fold(model, train_df, test_df, images_dir, num_classes, 
                             transform_train, transform_test,
                             epochs=10, micro_batch_size=4, accumulation_steps=8, device="cuda",
-                            logger=None, fold=0):
+                            logger=None, fold=0, lr=5e-4):
     
     # StratifiedShuffleSplit for intra-fold validation (90% train, 10% val)
     try:
@@ -70,7 +71,7 @@ def train_and_evaluate_fold(model, train_df, test_df, images_dir, num_classes,
     weights = make_class_weights(train_labels, num_classes).to(device)
     criterion = nn.CrossEntropyLoss(weight=weights)
     
-    optimizer = optim.Adam(model.parameters(), lr=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     scaler = torch.amp.GradScaler('cuda')
     
@@ -79,7 +80,9 @@ def train_and_evaluate_fold(model, train_df, test_df, images_dir, num_classes,
     os.makedirs(ckpt_dir, exist_ok=True)
     best_model_path = os.path.join(ckpt_dir, f"fold_{fold+1}_best.pth")
     
+    global_step = 0
     for epoch in range(epochs):
+        if logger: logger.epoch_start()
         model.train()
         running_loss = 0.0
         optimizer.zero_grad()
@@ -100,6 +103,9 @@ def train_and_evaluate_fold(model, train_df, test_df, images_dir, num_classes,
                 optimizer.zero_grad()
                 
             running_loss += loss.item() * accumulation_steps
+            global_step += 1
+            if logger and global_step % accumulation_steps == 0:
+                logger.log_step("train", {"loss": loss.item() * accumulation_steps, "lr": scheduler.get_last_lr()[0]}, global_step // accumulation_steps)
             
         scheduler.step()
         
@@ -116,8 +122,10 @@ def train_and_evaluate_fold(model, train_df, test_df, images_dir, num_classes,
                 val_targets.extend(labels.numpy())
                 
         val_f1 = f1_score(val_targets, val_preds, average="macro", zero_division=0)
-        print(f"Epoch {epoch+1} - Loss: {running_loss/len(sub_train_loader):.4f}, Val F1: {val_f1:.4f}")
-        
+        epoch_loss = running_loss/len(sub_train_loader)
+        print(f"Epoch {epoch+1} - Loss: {epoch_loss:.4f}, Val F1: {val_f1:.4f}")
+        if logger:
+            logger.log_epoch(fold, epoch, {"train_loss": epoch_loss, "val_f1": val_f1, "lr": scheduler.get_last_lr()[0]})
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             torch.save(model.state_dict(), best_model_path)
@@ -143,9 +151,10 @@ def train_and_evaluate_fold(model, train_df, test_df, images_dir, num_classes,
     
     return f1, prec, rec, cm
 
-def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumulation_steps):
-    logger = RunLogger(paradigm="full_finetune")
-    logger.log_hparams({"epochs": epochs, "micro_batch_size": micro_batch_size, "accumulation_steps": accumulation_steps})
+def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumulation_steps, rank, lr):
+    logger = RunLogger(paradigm="lora")
+    logger.log_hparams({"epochs": epochs, "micro_batch_size": micro_batch_size, "rank": rank, "lr": lr})
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     df = pd.read_csv(metadata_csv)
@@ -174,17 +183,22 @@ def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumula
         test_df = df.iloc[test_idx]
         
         # Instantiate fresh model for each fold
-        model = FullIJEPAModel(ckpt_path=ckpt_path, num_classes=num_classes).to(device)
+        model = LoRAIJEPAModel(ckpt_path=ckpt_path, rank=rank, num_classes=num_classes).to(device)
+        
+        if fold == 0:
+            trainable, total, pct = count_trainable_params(model)
+            print(f"\n[BUDGET] Trainable Params: {trainable:,} / {total:,} ({pct:.2f}%)")
+            if pct >= 5.0:
+                print("[WARNING] Parameter budget exceeds 5%!")
         
         f1, prec, rec, cm = train_and_evaluate_fold(
             model, train_df, test_df, images_dir, num_classes,
             transform_train, transform_test,
             epochs=epochs, micro_batch_size=micro_batch_size, 
             accumulation_steps=accumulation_steps, device=device,
-            logger=logger, fold=fold
+            logger=logger, fold=fold, lr=lr
         )
         
-        print(f"Fold {fold+1} Test F1: {f1:.4f}")
         f1s.append(f1)
         if logger: logger.log_fold_result(fold, f1)
         precs.append(prec)
@@ -193,7 +207,6 @@ def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumula
         
     print("\n=== Final Results ===")
     print(f"Macro F1: {np.mean(f1s):.4f} ± {np.std(f1s):.4f}")
-    print(f"Macro Precision: {np.mean(precs):.4f} ± {np.std(precs):.4f}")
     print(f"Macro Recall: {np.mean(recs):.4f} ± {np.std(recs):.4f}")
     
     if logger:
@@ -201,6 +214,7 @@ def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumula
             "macro_f1_mean": np.mean(f1s),
             "macro_f1_std": np.std(f1s)
         })
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--images_dir", type=str, required=True)
@@ -209,11 +223,14 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--micro_batch_size", type=int, default=4)
     parser.add_argument("--accumulation_steps", type=int, default=8)
+    parser.add_argument("--rank", type=int, default=16)
+    parser.add_argument("--lr", type=float, default=5e-4)
     args = parser.parse_args()
     
     try:
         main(args.images_dir, args.metadata_csv, args.ckpt_path, 
-             args.epochs, args.micro_batch_size, args.accumulation_steps)
+             args.epochs, args.micro_batch_size, args.accumulation_steps,
+             args.rank, args.lr)
     except RuntimeError as e:
         if "out of memory" in str(e).lower():
             print("\n[ERROR] CUDA Out of Memory!")

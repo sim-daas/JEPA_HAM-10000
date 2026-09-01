@@ -30,12 +30,12 @@ def create_mock_data(base_dir="mock_data", num_images=20):
         lesion_id = lesion_ids[i % num_lesions]
         dx = lesion_classes[lesion_id]
         
-        # Generate random image (600x450 RGB)
-        img = np.random.randint(0, 256, (450, 600, 3), dtype=np.uint8)
+        # Generate random image (224x224 RGB)
+        img = np.random.randint(0, 256, (224, 224, 3), dtype=np.uint8)
         
         # Add some "hair" artifacts (black lines)
         for _ in range(5):
-            x1, y1 = np.random.randint(0, 600), np.random.randint(0, 450)
+            x1, y1 = np.random.randint(0, 224), np.random.randint(0, 224)
             x2, y2 = x1 + np.random.randint(-50, 50), y1 + np.random.randint(-50, 50)
             cv2.line(img, (x1, y1), (x2, y2), (0, 0, 0), thickness=2)
             

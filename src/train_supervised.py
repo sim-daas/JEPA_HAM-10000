@@ -14,6 +14,7 @@ import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
 from pathlib import Path
 from cv_utils import make_class_weights, get_folds
+from logger import RunLogger
 
 class HAM10000Dataset(Dataset):
     def __init__(self, metadata_df, images_dir, transform=None):
@@ -42,8 +43,7 @@ class HAM10000Dataset(Dataset):
             
         return image, label, lesion_id
 
-def train_and_evaluate_fold(model, train_loader, test_loader, num_classes, train_labels, epochs=5, device="cuda"):
-    weights = make_class_weights(train_labels, num_classes).to(device)
+def train_and_evaluate_fold(model, train_loader, test_loader, num_classes, train_labels, epochs=5, device="cuda", logger=None, fold=0):
     criterion = nn.CrossEntropyLoss(weight=weights)
     
     # Lower LR to prevent catastrophic forgetting
@@ -80,8 +80,12 @@ def train_and_evaluate_fold(model, train_loader, test_loader, num_classes, train
                     raise e
                     
         scheduler.step()
-                    
-    # Evaluate
+        
+    # Save fold checkpoint
+    if logger:
+        ckpt_dir = os.path.join(logger.log_dir, "checkpoints")
+        os.makedirs(ckpt_dir, exist_ok=True)
+        torch.save(model.state_dict(), os.path.join(ckpt_dir, f"fold_{fold+1}_best.pth"))
     model.eval()
     all_preds = []
     all_targets = []
@@ -102,9 +106,9 @@ def train_and_evaluate_fold(model, train_loader, test_loader, num_classes, train
     return f1, prec, rec, cm
 
 def main(images_dir: str, metadata_csv: str, model_name: str):
+    logger = RunLogger(paradigm=f"supervised_{model_name}")
+    logger.log_hparams({"model_name": model_name})
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-    
     df = pd.read_csv(metadata_csv)
     
     transform_train = transforms.Compose([
@@ -155,19 +159,24 @@ def main(images_dir: str, metadata_csv: str, model_name: str):
         y_train_int = [class_to_idx[l] for l in train_df['dx'].values]
         
         f1, prec, rec, cm = train_and_evaluate_fold(
-            model, train_loader, test_loader, num_classes, y_train_int, epochs=2, device=device
+            model, train_loader, test_loader, num_classes, y_train_int, epochs=2, device=device, logger=logger, fold=fold
         )
         
         f1s.append(f1)
+        if logger: logger.log_fold_result(fold, f1)
         precs.append(prec)
         recs.append(rec)
         cms.append(cm)
-        
     print(f"\n--- Evaluating Supervised {model_name} Baseline ---")
     print(f"Macro F1: {np.mean(f1s):.4f} ± {np.std(f1s):.4f}")
     print(f"Macro Precision: {np.mean(precs):.4f} ± {np.std(precs):.4f}")
     print(f"Macro Recall: {np.mean(recs):.4f} ± {np.std(recs):.4f}")
-
+    
+    if logger:
+        logger.finish({
+            "macro_f1_mean": np.mean(f1s),
+            "macro_f1_std": np.std(f1s)
+        })
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--images_dir", type=str, required=True, help="Directory containing preprocessed images")
