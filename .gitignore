@@ -1,2 +1,6 @@
 models
 datasets/
+initial_weights.pth
+mock_data/
+best_fold_model.pth
+
