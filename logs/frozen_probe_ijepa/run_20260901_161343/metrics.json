@@ -1,0 +1,19 @@
+{
+    "hparams": {
+        "num_layers": 2,
+        "epochs": 20,
+        "model_name": "ijepa"
+    },
+    "epochs": [],
+    "folds": {
+        "fold_0": 0.6271461243789516,
+        "fold_1": 0.6629050086981779,
+        "fold_2": 0.595392104575223,
+        "fold_3": 0.598417248711901,
+        "fold_4": 0.5891868877716249
+    },
+    "peak_gpu_memory_MB": 0.0,
+    "total_time_seconds": 34.24170231819153,
+    "macro_f1_mean": 0.6146094748271758,
+    "macro_f1_std": 0.027449698039996893
+}

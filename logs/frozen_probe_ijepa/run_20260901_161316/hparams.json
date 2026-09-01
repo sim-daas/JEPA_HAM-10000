@@ -1,0 +1,5 @@
+{
+    "num_layers": 2,
+    "epochs": 20,
+    "model_name": "ijepa"
+}

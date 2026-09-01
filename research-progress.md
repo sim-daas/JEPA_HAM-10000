@@ -48,6 +48,7 @@ Two critical sanity checks were verified to ensure the gap calculation is valid:
 - **Macro F1 (`F_lora`)**: **0.6947 ± 0.0582**
 - **Macro Recall**: 0.7184 ± 0.0494
 - **Trainable Parameters**: 11,175,109 / 641,937,349 (**1.74%**)
+  - *Denominator clarification*: 11.17M trainable params (LoRA + head) / 641.9M total params (frozen backbone + LoRA + head). When considering LoRA adapters against the backbone only, the efficiency is similarly <2%.
 - **Peak GPU Memory**: **~5,790 MB** (5.79 GB)
 
 ### Core Claim Calculation
@@ -56,8 +57,9 @@ Two critical sanity checks were verified to ensure the gap calculation is valid:
 - `0.0760 / 0.1128 * 100` = **67.38%**
 
 ### Analysis & Judgment
-1. **Strong Gap Closure**: LoRA successfully closed over two-thirds (**67.4%**) of the performance gap to full fine-tuning while updating an incredibly sparse **1.74%** of the backbone parameters. This is a highly compelling, statistically sound result for the core claim of the paper.
+1. **Strong Gap Closure**: LoRA successfully closed over two-thirds (**67.4%**) of the performance gap to full fine-tuning while updating an incredibly sparse **1.74%** of the parameters. *(Note: This headline claim of "LoRA specifically" remains provisional until Condition D, the param-matched naive unfreeze, is evaluated to rule out that merely unfreezing any 1.7% of parameters would yield identical gains.)*
 2. **Metric Ordering Validated**: The final aggregate perfectly slots exactly where it theoretically should, validating the integrity of the evaluation pipeline: 
    `Full FT (0.7315) > LoRA (0.6947) > Supervised ViT-B (0.6371) > Frozen Probe (0.6187)`.
 3. **High Efficiency**: Peak memory footprint was remarkably low (5.79 GB vs. the ~16GB required for full fine-tuning). This proves that the adaptation method can be run on consumer-grade hardware (like a standard 8GB GPU).
-4. **Variance Note**: The fold-to-fold standard deviation (±0.0582) is notably higher than full fine-tuning (±0.0171). This necessitates executing the Bootstrap CI algorithm (Roadmap §5.1) to yield the 95% confidence intervals when making the final claim.
+4. **Variance Note**: The fold-to-fold standard deviation (±0.0582) is notably higher than full fine-tuning (±0.0171). Inspecting the per-fold data reveals this is driven heavily by a single outlier fold (Fold 1 Macro-F1 = 0.594, whereas Folds 2, 3, and 5 sit tightly around ~0.73-0.74). We will check if this fold's split has an unusually hard lesion-group distribution. This high variance necessitates executing the Bootstrap CI algorithm on the actual per-fold arrays.
+5. **Precision vs. Recall Skew**: Macro Recall (0.7184) sits higher than Macro F1 (0.6947), indicating a precision/recall skew likely inherited from the weighted loss function (similar to the frozen probe). Analyzing the post-LoRA confusion matrix will be critical for the failure-analysis figure to see if adaptation tightened precision relative to the frozen baseline.

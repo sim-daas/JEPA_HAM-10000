@@ -51,6 +51,7 @@ def train_and_evaluate_fold(X_train, y_train, X_test, y_test, num_classes, epoch
 def evaluate_features(features_path, labels_path, metadata_csv, num_classes=7, num_folds=5, epochs=20, num_layers=2, model_name="model"):
     logger = RunLogger(paradigm=f"frozen_probe_{model_name}")
     logger.log_hparams({"num_layers": num_layers, "epochs": epochs, "model_name": model_name})
+    X = np.load(features_path)
     y = np.load(labels_path)
     df = pd.read_csv(metadata_csv)
     
@@ -86,6 +87,7 @@ def main(features_dir: str, num_layers: int):
     labels_path = feat_dir / "labels.npy"
     groups_path = feat_dir / "lesion_ids.npy"
     metadata_csv = feat_dir.parent / "HAM10000_preprocessed" / "metadata.csv"
+    ijepa_feats = feat_dir / "ijepa_features.npy"
     # Since mock data might not have enough samples for 5 folds across all classes,
     if ijepa_feats.exists():
         print(f"\n--- Evaluating I-JEPA Features ({num_layers}-layer MLP Probe) ---")
