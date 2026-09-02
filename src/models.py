@@ -114,3 +114,33 @@ class FullIJEPAModel(nn.Module):
         else:
             pooled = tokens
         return self.head(pooled)
+
+class NaiveUnfreezeIJEPAModel(nn.Module):
+    def __init__(self, ckpt_path: str, num_classes=7, hidden=512, dropout=0.4, num_layers=2):
+        super().__init__()
+        self.encoder = load_ijepa_target_encoder(ckpt_path, device="cpu")
+        
+        # 1. Freeze everything
+        for p in self.encoder.parameters():
+            p.requires_grad_(False)
+            
+        # 2. Unfreeze only the MLP of the last transformer block
+        for p in self.encoder.blocks[-1].mlp.parameters():
+            p.requires_grad_(True)
+            
+        # The head is naturally unfrozen upon initialization
+        self.head = ProbeHead(
+            in_dim=1280,
+            num_classes=num_classes,
+            hidden=hidden,
+            dropout=dropout,
+            num_layers=num_layers
+        )
+        
+    def forward(self, x):
+        tokens = self.encoder(x)
+        if tokens.dim() == 3:
+            pooled = tokens.mean(dim=1)
+        else:
+            pooled = tokens
+        return self.head(pooled)

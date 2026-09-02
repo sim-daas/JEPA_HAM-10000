@@ -1,0 +1,15 @@
+--- Statistical Analysis ---
+F_frozen array: [0.6343 0.6179 0.6085 0.6183 0.6086]
+F_full array:   [0.7393 0.7529 0.726  0.7014 0.7222]
+F_lora array:   [0.5944 0.7434 0.7396 0.663  0.7332]
+F_naive array:  [0.7008 0.7111 0.6811 0.6748 0.664 ]
+
+--- Wilcoxon Paired Tests ---
+LoRA > Frozen: p = 0.0625
+Full > LoRA:   p = 0.3125
+LoRA vs Naive: p = 0.8125
+
+--- Bootstrap CI for Gap Closed ---
+Gap Closed: 69.0% [95% CI: 10.9% - 106.6%]
+
+--- Confusion Matrix Analysis (Precision/Recall Skew) ---

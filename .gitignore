@@ -1,6 +1,10 @@
 models
 datasets/
-initial_weights.pth
-mock_data/
-best_fold_model.pth
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+checkpoints/
+checkpoint/
 

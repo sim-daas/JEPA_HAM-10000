@@ -1,0 +1,5 @@
+{
+    "epochs": 10,
+    "micro_batch_size": 4,
+    "accumulation_steps": 8
+}

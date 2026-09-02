@@ -1,0 +1,19 @@
+{
+    "hparams": {
+        "epochs": 10,
+        "micro_batch_size": 4,
+        "accumulation_steps": 8
+    },
+    "epochs": [],
+    "folds": {
+        "fold_0": 0.7393238314001322,
+        "fold_1": 0.7528961595079419,
+        "fold_2": 0.7259798401288874,
+        "fold_3": 0.701420545104047,
+        "fold_4": 0.7222343903288734
+    },
+    "peak_gpu_memory_MB": 0.0,
+    "total_time_seconds": 17215.098294258118,
+    "macro_f1_mean": 0.7283709532939764,
+    "macro_f1_std": 0.017269340505315107
+}

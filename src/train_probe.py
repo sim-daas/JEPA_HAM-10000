@@ -11,6 +11,16 @@ import pandas as pd
 from cv_utils import make_class_weights, get_folds
 from logger import RunLogger
 from models import ProbeHead
+import random
+
+def set_seed(seed=42):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 def train_and_evaluate_fold(X_train, y_train, X_test, y_test, num_classes, epochs=20, batch_size=32, device="cuda", num_layers=2, logger=None, fold=0):
     model = ProbeHead(in_dim=X_train.shape[1], num_classes=num_classes, num_layers=num_layers).to(device)
     
@@ -82,7 +92,8 @@ def evaluate_features(features_path, labels_path, metadata_csv, num_classes=7, n
         "cm": np.sum(cms, axis=0)
     }
 
-def main(features_dir: str, num_layers: int):
+def main(features_dir: str, num_layers: int, seed: int = 42):
+    set_seed(seed)
     feat_dir = Path(features_dir)
     labels_path = feat_dir / "labels.npy"
     groups_path = feat_dir / "lesion_ids.npy"
@@ -104,16 +115,12 @@ def main(features_dir: str, num_layers: int):
         print(f"Macro Precision: {dino_results['macro_prec'][0]:.4f} ± {dino_results['macro_prec'][1]:.4f}")
         print(f"Macro Recall: {dino_results['macro_rec'][0]:.4f} ± {dino_results['macro_rec'][1]:.4f}")
     
-    print(f"\n--- Evaluating DINO (Probe Layers: {num_layers}) ---")
-    dino_results = evaluate_features(feat_dir / "dino_features.npy", labels_path, str(metadata_csv), num_folds=num_folds, num_layers=num_layers)
-    print(f"Macro F1: {dino_results['macro_f1'][0]:.4f} ± {dino_results['macro_f1'][1]:.4f}")
-    print(f"Macro Precision: {dino_results['macro_prec'][0]:.4f} ± {dino_results['macro_prec'][1]:.4f}")
-    print(f"Macro Recall: {dino_results['macro_rec'][0]:.4f} ± {dino_results['macro_rec'][1]:.4f}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--features_dir", type=str, required=True, help="Directory containing cached features")
     parser.add_argument("--num_layers", type=int, default=2, help="Number of layers in the MLP probe")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible training")
     args = parser.parse_args()
     
-    main(args.features_dir, args.num_layers)
+    main(args.features_dir, args.num_layers, args.seed)
