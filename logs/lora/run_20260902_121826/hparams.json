@@ -1,0 +1,8 @@
+{
+    "epochs": 10,
+    "micro_batch_size": 4,
+    "rank": 16,
+    "lr": 0.0005,
+    "seed": 100,
+    "only_fold": 0
+}

@@ -16,6 +16,15 @@ from cv_utils import make_class_weights, get_folds
 from models import NaiveUnfreezeIJEPAModel, count_trainable_params
 from logger import RunLogger
 import torch.multiprocessing
+import random
+
+def set_seed(seed=42):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 class HAM10000Dataset(Dataset):
@@ -151,9 +160,10 @@ def train_and_evaluate_fold(model, train_df, test_df, images_dir, num_classes,
     
     return f1, prec, rec, cm
 
-def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumulation_steps, lr):
+def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumulation_steps, lr, seed, only_fold):
+    set_seed(seed)
     logger = RunLogger(paradigm="naive")
-    logger.log_hparams({"epochs": epochs, "micro_batch_size": micro_batch_size, "lr": lr})
+    logger.log_hparams({"epochs": epochs, "micro_batch_size": micro_batch_size, "lr": lr, "seed": seed, "only_fold": only_fold})
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -179,6 +189,8 @@ def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumula
     f1s, precs, recs, cms = [], [], [], []
     
     for fold, (train_idx, test_idx) in enumerate(get_folds(df, num_folds=num_folds, random_state=42)):
+        if only_fold != -1 and fold != only_fold:
+            continue
         print(f"\n--- Fold {fold+1}/{num_folds} ---")
         
         train_df = df.iloc[train_idx]
@@ -187,7 +199,7 @@ def main(images_dir, metadata_csv, ckpt_path, epochs, micro_batch_size, accumula
         # Instantiate fresh model for each fold
         model = NaiveUnfreezeIJEPAModel(ckpt_path=ckpt_path, num_classes=num_classes).to(device)
         
-        if fold == 0:
+        if fold == 0 or only_fold != -1:
             trainable, total, pct = count_trainable_params(model)
             print(f"\n[BUDGET] Trainable Params: {trainable:,} / {total:,} ({pct:.2f}%)")
             if pct >= 5.0:
@@ -226,12 +238,14 @@ if __name__ == "__main__":
     parser.add_argument("--micro_batch_size", type=int, default=4)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--only_fold", type=int, default=-1)
     args = parser.parse_args()
     
     try:
         main(args.images_dir, args.metadata_csv, args.ckpt_path, 
              args.epochs, args.micro_batch_size, args.accumulation_steps,
-             args.lr)
+             args.lr, args.seed, args.only_fold)
     except RuntimeError as e:
         if "out of memory" in str(e).lower():
             print("\n[ERROR] CUDA Out of Memory!")
