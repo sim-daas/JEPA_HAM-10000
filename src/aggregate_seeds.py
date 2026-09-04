@@ -51,6 +51,7 @@ def aggregate_logs():
                 row_str = f"{seed:<6}"
                 fold_f1s = []
                 for fold in range(5):
+                    # Gracefully handle missing folds
                     f1 = results[paradigm][seed].get(fold, None)
                     if f1 is not None:
                         row_str += f" | {f1:.4f}"
@@ -62,7 +63,22 @@ def aggregate_logs():
                 row_str += f" | {mean_f1:.4f}\n"
                 out.write(row_str)
             out.write("\n")
+        out.write("=====================================\n")
+        out.write("Targeted Fold 0 Analysis (5-Seed Mean)\n")
+        out.write("=====================================\n")
+        
+        for paradigm in ["lora", "naive"]:
+            fold0_f1s = []
+            for seed, folds in results[paradigm].items():
+                if 0 in folds:
+                    fold0_f1s.append(folds[0])
             
+            if fold0_f1s:
+                mean_f1 = sum(fold0_f1s) / len(fold0_f1s)
+                out.write(f"{paradigm.upper()} Fold 0 Mean ({len(fold0_f1s)} seeds): {mean_f1:.4f}\n")
+            else:
+                out.write(f"{paradigm.upper()} Fold 0 Mean: N/A\n")
+                
 if __name__ == "__main__":
     aggregate_logs()
     print("Aggregated results saved to logs/robustness_summary.txt")

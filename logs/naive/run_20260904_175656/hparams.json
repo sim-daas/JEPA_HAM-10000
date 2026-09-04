@@ -1,0 +1,7 @@
+{
+    "epochs": 10,
+    "micro_batch_size": 4,
+    "lr": 0.0005,
+    "seed": 2024,
+    "only_fold": 0
+}
